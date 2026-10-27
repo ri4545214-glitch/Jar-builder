@@ -1,0 +1,59 @@
+name: Build jar
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.1.0
+
+      - name: Unpack and prepare project
+        run: |
+          mkdir -p work
+          unzip -q source.zip -d work
+          MAIN=$(find work -type d -path '*/src/main' | head -n1)
+          if [ -z "$MAIN" ]; then echo "No src/main folder found in the zip"; exit 1; fi
+          ROOT=$(dirname "$(dirname "$MAIN")")
+          echo "Project root: $ROOT"
+          if [ ! -f "$ROOT/build.gradle" ] && [ ! -f "$ROOT/build.gradle.kts" ]; then
+            echo "No build files in zip, using template"
+            cp template/build.gradle "$ROOT/build.gradle"
+            cp template/settings.gradle "$ROOT/settings.gradle"
+            cp template/gradle.properties "$ROOT/gradle.properties"
+            JSON="$ROOT/src/main/resources/fabric.mod.json"
+            ID=$(jq -r .id "$JSON")
+            VER=$(jq -r .version "$JSON")
+            case "$VER" in *'$'*|null|"") VER=1.0.0;; esac
+            echo "archives_base_name=$ID" >> "$ROOT/gradle.properties"
+            echo "mod_version=$VER" >> "$ROOT/gradle.properties"
+          fi
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: ${{ env.ROOT }}
+        run: |
+          gradle build --no-daemon
+          rm -f build/libs/*-sources.jar build/libs/*-dev.jar
+          ls -la build/libs
+
+      - name: Publish jar to the latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          body: Built by Jar Builder.
+          files: ${{ env.ROOT }}/build/libs/*.jar
