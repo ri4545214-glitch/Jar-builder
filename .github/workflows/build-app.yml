@@ -13,19 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Find the project folder
+        run: |
+          S=$(find . -maxdepth 3 -name 'settings.gradle.kts' | head -n1)
+          if [ -z "$S" ]; then echo "settings.gradle.kts not found - upload the whole project folder contents"; exit 1; fi
+          echo "DIR=$(dirname "$S")" >> "$GITHUB_ENV"
+          if [ ! -d "$(dirname "$S")/app/src" ]; then echo "app/src folder is missing"; exit 1; fi
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
+
       - name: Build APK
+        working-directory: ${{ env.DIR }}
         run: gradle assembleDebug --no-daemon
+
       - name: Publish APK to the latest release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Jar Builder app
           body: Download app-debug.apk and install it.
-          files: app/build/outputs/apk/debug/app-debug.apk
+          files: ${{ env.DIR }}/app/build/outputs/apk/debug/app-debug.apk
